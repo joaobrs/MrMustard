@@ -26,6 +26,7 @@ from mrmustard.physics import triples
 from .circuit_components import CircuitComponent
 from ..physics.representations import Bargmann
 
+
 __all__ = ["TraceOut", "DsMap", "BtoQMap"]
 
 

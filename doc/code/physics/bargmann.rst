@@ -1,9 +1,14 @@
-Calculations on Bargmann objects
-================================
+The Bargmann representation theory
+==========================================
+.. currentmodule:: mrmustard.physics.bargmann
+
+.. automodapi:: mrmustard.physics.bargmann
+    :no-heading:
+    :include-all-objects:
 
 .. toctree::
     :maxdepth: 1
 
     utils/triples
-    utils/bargmann_calculations
     utils/gaussian_integral
+

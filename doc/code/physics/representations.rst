@@ -1,4 +1,4 @@
-The Fock-Bargmann and Fock Representations
+The representations of quantum objects
 ==========================================
 
 .. currentmodule:: mrmustard.physics.representations
@@ -6,3 +6,9 @@ The Fock-Bargmann and Fock Representations
 .. automodapi:: mrmustard.physics.representations
     :no-heading:
     :include-all-objects:
+
+.. toctree::
+    :maxdepth: 1
+
+    bargmann
+    fock
