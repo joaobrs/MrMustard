@@ -631,10 +631,16 @@ class DM(State):
 
     def __init__(
         self,
-        modes: Sequence[int, ...] = (),
+        modes: Sequence[int, ...] | CircuitComponent = (),
         representation: Optional[Bargmann | Fock] = None,
         name: Optional[str] = None,
     ):
+        if isinstance(modes, CircuitComponent):
+            cc = modes
+            if not cc.wires.dm_like:
+                raise ValueError("Expected a density matrix-like circuit component.")
+            return DM._from_attributes(cc.representation, cc.wires)
+
         if representation and representation.ansatz.num_vars != 2 * len(modes):
             raise ValueError(
                 f"Expected a representation with {2*len(modes)} variables, found {representation.ansatz.num_vars}."
@@ -805,10 +811,16 @@ class Ket(State):
 
     def __init__(
         self,
-        modes: tuple[int, ...] = (),
+        modes: tuple[int, ...] | CircuitComponent = (),
         representation: Optional[Bargmann | Fock] = None,
         name: Optional[str] = None,
     ):
+        if isinstance(modes, CircuitComponent):
+            cc = modes
+            if not cc.wires.ket_like:
+                raise ValueError("Expected a ket-like circuit component.")
+            return Ket._from_attributes(cc.representation, cc.wires)
+
         if representation and representation.ansatz.num_vars != len(modes):
             raise ValueError(
                 f"Expected a representation with {len(modes)} variables, found {representation.ansatz.num_vars}."

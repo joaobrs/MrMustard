@@ -65,8 +65,9 @@ def _reshape(**kwargs) -> Generator:
             var = math.tile(var, (n_modes,))
         else:
             if len(var) != n_modes:
-                msg = f"Parameter {names[i]} has an incompatible shape."
-                raise ValueError(msg)
+                raise ValueError(
+                    f"Parameter {names[i]} has ({len(var)} variables (expected {n_modes})."
+                )
         yield var
 
 

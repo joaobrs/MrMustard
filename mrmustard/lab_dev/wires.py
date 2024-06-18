@@ -310,6 +310,40 @@ class Wires:
         r"New ``Wires`` object obtained by swapping input and output wires."
         return Wires(self.args[1], self.args[0], self.args[3], self.args[2])
 
+    @cached_property
+    def dm_like(self) -> bool:
+        r"Returns ``True`` if the wires are compatible with a density matrix."
+        return not self.args[1] and not self.args[3] and self.args[0] == self.args[2]
+
+    @cached_property
+    def ket_like(self) -> bool:
+        r"Returns ``True`` if the wires are compatible with a ket."
+        return not self.args[0] and not self.args[1] and not self.args[3]
+
+    @cached_property
+    def op_like(self) -> bool:
+        r"Returns ``True`` if the wires are compatible with a unitary."
+        return not self.args[0] and not self.args[1]
+
+    @cached_property
+    def map_like(self) -> bool:
+        r"Returns ``True`` if the wires are compatible with a map."
+        return self.args[0] == self.args[2] and self.args[1] == self.args[3]
+
+    @cached_property
+    def u_like(self) -> bool:
+        r"Returns ``True`` if the wires are compatible with a unitary."
+        return self.op_like and len(self.args[2]) == len(self.args[3])
+
+    @cached_property
+    def channel_like(self) -> bool:
+        r"Returns ``True`` if the wires are compatible with a channel."
+        return (
+            self.map_like
+            and len(self.args[0]) == len(self.args[1])
+            and len(self.args[2]) == len(self.args[3])
+        )
+
     def __getitem__(self, modes: tuple[int, ...] | int) -> Wires:
         r"New ``Wires`` object with wires only on the given modes."
         modes_set = {modes} if isinstance(modes, int) else set(modes)
