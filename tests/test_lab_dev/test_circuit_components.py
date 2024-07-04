@@ -24,7 +24,7 @@ from mrmustard.math.parameters import Constant, Variable
 from mrmustard.physics.converters import to_fock
 from mrmustard.physics.triples import displacement_gate_Abc
 from mrmustard.physics.representations import Bargmann
-from mrmustard.lab_dev.circuit_components import CircuitComponent, AdjointView, DualView
+from mrmustard.lab_dev.circuit_components import CircuitComponent
 from mrmustard.lab_dev.states import (
     Ket,
     DM,
@@ -116,7 +116,7 @@ class TestCircuitComponent:
         d1 = Dgate([1, 8], x=0.1, y=0.2)
         d1_adj = d1.adjoint
 
-        assert isinstance(d1_adj, AdjointView)
+        assert isinstance(d1_adj, CircuitComponent)
         assert d1_adj.name == d1.name
         assert d1_adj.wires == d1.wires.adjoint
         assert (
@@ -133,7 +133,7 @@ class TestCircuitComponent:
         d1_dual = d1.dual
         vac = Vacuum([1, 8])
 
-        assert isinstance(d1_dual, DualView)
+        assert isinstance(d1_dual, CircuitComponent)
         assert d1_dual.name == d1.name
         assert d1_dual.wires == d1.wires.dual
         assert (vac >> d1 >> d1_dual).representation == vac.representation
@@ -444,81 +444,3 @@ class TestCircuitComponent:
         back = Channel.from_quadrature([0], [0], C.quadrature())
         assert C == back
 
-
-class TestAdjointView:
-    r"""
-    Tests ``AdjointView`` objects.
-    """
-
-    def test_init(self):
-        d1 = Dgate([1], x=0.1, y=0.1)
-        d1_adj = AdjointView(d1)
-
-        assert d1_adj.name == d1.name
-        assert d1_adj.short_name == d1.short_name + "_adj"
-        assert d1_adj.wires == d1.wires.adjoint
-        assert d1_adj.representation == d1.representation.conj()
-
-        d1_adj_adj = d1_adj.adjoint
-        assert d1_adj_adj.wires == d1.wires
-        assert d1_adj_adj.representation == d1.representation
-
-    def test_repr(self):
-        c1 = CircuitComponent(modes_out_ket=(0, 1, 2))
-        c2 = CircuitComponent(modes_out_ket=(0, 1, 2), name="my_component")
-
-        assert repr(c1.adjoint) == "CircuitComponent(modes=[0, 1, 2], name=CC012)"
-        assert repr(c2.adjoint) == "CircuitComponent(modes=[0, 1, 2], name=my_component)"
-
-    def test_parameters_point_to_original_parameters(self):
-        r"""
-        Tests that the parameters of an AdjointView object point to those of the original object.
-        """
-        d1 = Dgate(modes=[0], x=0.1, y=0.2, x_trainable=True)
-        d1_adj = AdjointView(d1)
-
-        d1.x.value = 0.8
-
-        assert d1_adj.x.value == 0.8
-        assert d1_adj.representation == d1.representation.conj()
-
-
-class TestDualView:
-    r"""
-    Tests ``DualView`` objects.
-    """
-
-    def test_init(self):
-        r"""
-        Tests the ``__init__`` method.
-        """
-        d1 = Dgate([1], x=0.1, y=0.1)
-        d1_dual = DualView(d1)
-        vac = Vacuum([1])
-
-        assert d1_dual.name == d1.name
-        assert d1_dual.wires == d1.wires.dual
-        assert (vac >> d1 >> d1_dual).representation == vac.representation
-
-        d1_dual_dual = DualView(d1_dual)
-        assert d1_dual_dual.wires == d1.wires
-        assert d1_dual_dual.representation == d1.representation
-
-    def test_repr(self):
-        c1 = CircuitComponent(modes_out_ket=(0, 1, 3))
-        c2 = CircuitComponent(modes_out_ket=(0, 1, 3), name="my_component")
-
-        assert repr(c1.dual) == "CircuitComponent(modes=[0, 1, 3], name=CC013)"
-        assert repr(c2.dual) == "CircuitComponent(modes=[0, 1, 3], name=my_component)"
-
-    def test_parameters_point_to_original_parameters(self):
-        r"""
-        Tests that the parameters of a DualView object point to those of the original object.
-        """
-        d1 = Dgate(modes=[0], x=0.1, y=0.2, x_trainable=True)
-        d1_dual = DualView(d1)
-        vac = Vacuum([0])
-        d1.x.value = 0.8
-
-        assert d1_dual.x.value == 0.8
-        assert (vac >> d1 >> d1_dual).representation == vac.representation

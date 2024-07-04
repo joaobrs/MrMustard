@@ -195,12 +195,7 @@ class Unitary(Operation):
         )
 
     def inverse(self) -> Unitary:
-        unitary_dual = self.dual
-        return Unitary._from_attributes(
-            representation=unitary_dual.representation,
-            wires=unitary_dual.wires,
-            name=unitary_dual.name,
-        )
+        return self.dual
 
 
 class Map(Transformation):
