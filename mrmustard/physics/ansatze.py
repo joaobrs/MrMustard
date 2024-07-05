@@ -26,6 +26,7 @@ import numpy as np
 
 from mrmustard import math, settings
 from mrmustard.utils.argsort import argsort_gen
+from mrmustard.physics.tensor_views import ArrayView, ConjView
 from mrmustard.utils.typing import (
     Batch,
     ComplexMatrix,
@@ -139,12 +140,43 @@ class PolyExpBase(Ansatz):
     """
 
     def __init__(self, mat: Batch[Matrix], vec: Batch[Vector], array: Batch[Tensor]):
-        self.mat = math.atleast_3d(mat)
-        self.vec = math.atleast_2d(vec)
-        self.array = math.atleast_1d(array)
+        self._mat = ArrayView(mat, 3)
+        self._vec = ArrayView(vec, 2)
+        self._array = ArrayView(array, 1)
+
         self.batch_size = self.mat.shape[0]
         self.num_vars = self.mat.shape[-1]
         self._simplified = False
+
+    @property
+    def mat(self) -> Batch[ComplexMatrix]:
+        r"""
+        """
+        return self._mat.array
+    
+    @mat.setter
+    def mat(self, array):
+        self._mat = ArrayView(array, 3)
+    
+    @property
+    def vec(self) -> Batch[ComplexMatrix]:
+        r"""
+        """
+        return self._vec.array
+    
+    @vec.setter
+    def vec(self, array):
+        self._vec = ArrayView(array, 2)
+    
+    @property
+    def array(self) -> Batch[ComplexMatrix]:
+        r"""
+        """
+        return self._array.array
+    
+    @array.setter
+    def array(self, array):
+        self._array = ArrayView(array, 1)
 
     def __neg__(self) -> PolyExpBase:
         return self.__class__(self.mat, self.vec, -self.array)
@@ -423,11 +455,14 @@ class ArrayAnsatz(Ansatz):
     """
 
     def __init__(self, array: Batch[Tensor], batched: bool = True):
-        array = math.astensor(array)
-        if not batched:
-            array = array[None, ...]
-        self.array = array
+        self._array = ArrayView(array) if batched else  ArrayView([array])
         self.num_vars = len(self.array.shape) - 1
+
+    @property
+    def array(self) -> Batch[Tensor]:
+        r"""
+        """
+        return self._array.array
 
     def __neg__(self) -> ArrayAnsatz:
         r"""
