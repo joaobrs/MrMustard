@@ -317,7 +317,7 @@ class Bargmann(Representation):
         r"""
         The conjugate of this Bargmann object.
         """
-        new = self.__class__(math.conj(self.A), math.conj(self.b), math.conj(self.c))
+        new = self.__class__(self._ansatz._mat.conj(), self._ansatz._vec.conj(), self._ansatz._array.conj())
         new._contract_idxs = self._contract_idxs  # pylint: disable=protected-access
         return new
 

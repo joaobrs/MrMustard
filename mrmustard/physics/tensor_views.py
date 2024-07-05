@@ -28,13 +28,13 @@ __all__ = ["ArrayView", "ConjView"]
 class ArrayView:
     r"""
     """
-    def __init__(self, array: Tensor | Matrix | Vector, dim: int | None = None):
+    def __init__(self, array: Tensor | Matrix | Vector, min_dim: int | None = None):
         self._array = array
-        self._dim = dim
+        self._min_dim = min_dim
 
     def _get_array(self):
-        if self._dim:
-            return getattr(math, f"atleast_{self._dim}d")(self._array)
+        if self._min_dim:
+            return getattr(math, f"atleast_{self._min_dim}d")(self._array)
         return math.astensor(self._array)
 
     @property
@@ -43,7 +43,10 @@ class ArrayView:
         Returns 
         """
         return self._get_array()
-
+    
+    def conj(self):
+        return ConjView(self._array, self._min_dim)
+    
 
 class ConjView(ArrayView):
     r"""
@@ -55,3 +58,6 @@ class ConjView(ArrayView):
         Returns 
         """
         return math.conj(self._get_array())
+    
+    def conj(self):
+        return ArrayView(self._array, self._min_dim)

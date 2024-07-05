@@ -140,9 +140,9 @@ class PolyExpBase(Ansatz):
     """
 
     def __init__(self, mat: Batch[Matrix], vec: Batch[Vector], array: Batch[Tensor]):
-        self._mat = ArrayView(mat, 3)
-        self._vec = ArrayView(vec, 2)
-        self._array = ArrayView(array, 1)
+        self._mat = mat if isinstance(mat, ArrayView) else ArrayView(mat, 3)
+        self._vec = vec if isinstance(vec, ArrayView) else ArrayView(vec, 2)
+        self._array = array if isinstance(array, ArrayView) else ArrayView(array, 1)
 
         self.batch_size = self.mat.shape[0]
         self.num_vars = self.mat.shape[-1]
@@ -455,14 +455,22 @@ class ArrayAnsatz(Ansatz):
     """
 
     def __init__(self, array: Batch[Tensor], batched: bool = True):
-        self._array = ArrayView(array) if batched else  ArrayView([array])
-        self.num_vars = len(self.array.shape) - 1
+        if isinstance(array, ArrayView):
+            self._array = array
+        else:
+            self._array = ArrayView(array) if batched else ArrayView([array])
 
     @property
     def array(self) -> Batch[Tensor]:
         r"""
         """
         return self._array.array
+    
+    @property
+    def num_vars(self) -> int:
+        r"""
+        """
+        return len(self.array.shape) - 1
 
     def __neg__(self) -> ArrayAnsatz:
         r"""
@@ -572,7 +580,7 @@ class ArrayAnsatz(Ansatz):
         r"""
         The conjugate of this ansatz.
         """
-        return self.__class__(math.conj(self.array))
+        return self.__class__(self._array.conj())
 
 
 def bargmann_Abc_to_phasespace_cov_means(
