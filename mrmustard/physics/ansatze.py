@@ -26,7 +26,7 @@ import numpy as np
 
 from mrmustard import math, settings
 from mrmustard.utils.argsort import argsort_gen
-from mrmustard.physics.tensor_views import ArrayView, ConjView
+from mrmustard.physics.array_views import ArrayView
 from mrmustard.utils.typing import (
     Batch,
     ComplexMatrix,
