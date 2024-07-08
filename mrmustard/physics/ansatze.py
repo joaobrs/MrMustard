@@ -143,10 +143,15 @@ class PolyExpBase(Ansatz):
         self._mat = mat if isinstance(mat, ArrayView) else ArrayView(mat, 3)
         self._vec = vec if isinstance(vec, ArrayView) else ArrayView(vec, 2)
         self._array = array if isinstance(array, ArrayView) else ArrayView(array, 1)
-
-        self.batch_size = self.mat.shape[0]
-        self.num_vars = self.mat.shape[-1]
         self._simplified = False
+
+    @property
+    def batch_size(self):
+        return self.mat.shape[0]
+    
+    @property
+    def num_vars(self):
+        return self.mat.shape[-1]
 
     @property
     def mat(self) -> Batch[ComplexMatrix]:
@@ -156,7 +161,7 @@ class PolyExpBase(Ansatz):
     
     @mat.setter
     def mat(self, array):
-        self._mat = ArrayView(array, 3)
+        self._mat = array if isinstance(array, ArrayView) else ArrayView(array, 3)
     
     @property
     def vec(self) -> Batch[ComplexMatrix]:
@@ -166,7 +171,7 @@ class PolyExpBase(Ansatz):
     
     @vec.setter
     def vec(self, array):
-        self._vec = ArrayView(array, 2)
+        self._vec = array if isinstance(array, ArrayView) else ArrayView(array, 2)
     
     @property
     def array(self) -> Batch[ComplexMatrix]:
@@ -176,7 +181,7 @@ class PolyExpBase(Ansatz):
     
     @array.setter
     def array(self, array):
-        self._array = ArrayView(array, 1)
+        self._array = array if isinstance(array, ArrayView) else ArrayView(array, 1)
 
     def __neg__(self) -> PolyExpBase:
         return self.__class__(self.mat, self.vec, -self.array)
@@ -465,6 +470,10 @@ class ArrayAnsatz(Ansatz):
         r"""
         """
         return self._array.array
+    
+    @array.setter
+    def array(self, array):
+        self._array = array if isinstance(array, ArrayView) else ArrayView(array)
     
     @property
     def num_vars(self) -> int:
