@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import itertools
 from abc import ABC, abstractmethod
-from typing import Any, Union, Optional
+from typing import Any, Callable, Union, Optional
 
 import numpy as np
 
@@ -136,15 +136,30 @@ class PolyExpBase(Ansatz):
         mat: the matrix-like data
         vec: the vector-like data
         array: the array-like data
+        fn: an optional function to generate ``mat``, ``vec`` and ``array``.
+        **kwargs: arguments for ``fn``.
     """
 
-    def __init__(self, mat: Batch[Matrix], vec: Batch[Vector], array: Batch[Tensor]):
-        self.mat = math.atleast_3d(math.astensor(mat))
-        self.vec = math.atleast_2d(math.astensor(vec))
-        self.array = math.atleast_1d(math.astensor(array))
-        self.batch_size = self.mat.shape[0]
-        self.num_vars = self.mat.shape[-1]
+    def __init__(
+        self,
+        mat: Batch[Matrix],
+        vec: Batch[Vector],
+        array: Batch[Tensor],
+        fn: Optional[Callable] = None,
+        **kwargs: Any,
+    ):
+        self._mat = mat
+        self._vec = vec
+        self._array = array
+
+        self._backend_mat = None
+        self._backend_vec = None
+        self._backend_array = None
+
         self._simplified = False
+
+        self._fn = fn
+        self._kwargs = kwargs
 
     def __neg__(self) -> PolyExpBase:
         return self.__class__(self.mat, self.vec, -self.array)
@@ -167,6 +182,29 @@ class PolyExpBase(Ansatz):
         return self.__class__(combined_matrices, combined_vectors, combined_arrays)
 
     @property
+    def array(self) -> Batch[ComplexMatrix]:
+        r"""
+        The array of this ansatz.
+        """
+        if self._array is None:
+            self._compute_abc()
+        if self._backend_array is None:
+            self._backend_array = math.atleast_1d(self._array)
+        return self._backend_array
+
+    @array.setter
+    def array(self, array):
+        self._array = array
+        self._backend_array = None
+
+    @property
+    def batch_size(self):
+        r"""
+        The batch size of this ansatz.
+        """
+        return self.mat.shape[0]
+
+    @property
     def degree(self) -> int:
         r"""
         The degree of this ansatz.
@@ -174,6 +212,45 @@ class PolyExpBase(Ansatz):
         if self.array.ndim == 1:
             return 0
         return self.array.shape[-1] - 1
+
+    @property
+    def mat(self) -> Batch[ComplexMatrix]:
+        r"""
+        The matrix of this ansatz.
+        """
+        if self._mat is None:
+            self._compute_abc()
+        if self._backend_mat is None:
+            self._backend_mat = math.atleast_3d(self._mat)
+        return self._backend_mat
+
+    @mat.setter
+    def mat(self, array):
+        self._mat = array
+        self._backend_mat = None
+
+    @property
+    def num_vars(self):
+        r"""
+        The number of variables in this ansatz.
+        """
+        return self.mat.shape[-1]
+
+    @property
+    def vec(self) -> Batch[ComplexMatrix]:
+        r"""
+        The vector of this ansatz.
+        """
+        if self._vec is None:
+            self._compute_abc()
+        if self._backend_vec is None:
+            self._backend_vec = math.atleast_2d(self._vec)
+        return self._backend_vec
+
+    @vec.setter
+    def vec(self, array):
+        self._vec = array
+        self._backend_vec = None
 
     def simplify(self) -> None:
         r"""
@@ -220,6 +297,16 @@ class PolyExpBase(Ansatz):
         self.vec = math.gather(self.vec, to_keep, axis=0)
         self.array = math.gather(self.array, to_keep, axis=0)
         self._simplified = True
+
+    def _compute_abc(self):
+        r"""
+        This method computes and sets the matrix, vector and array given a function
+        and some kwargs.
+        """
+        A, b, c = self._fn(**self._kwargs)
+        self._mat = A
+        self._vec = b
+        self._array = c
 
     def _order_batch(self):
         r"""
@@ -275,7 +362,8 @@ class PolyExpAnsatz(PolyExpBase):
         A: The list of square matrices :math:`A_i`
         b: The list of vectors :math:`b_i`
         c: The array of coefficients for the polynomial terms in the ansatz.
-
+        fn: an optional function to generate ``(A, b, c)``.
+        **kwargs: arguments for ``fn``.
     """
 
     def __init__(
@@ -284,12 +372,14 @@ class PolyExpAnsatz(PolyExpBase):
         b: Optional[Batch[Vector]] = None,
         c: Batch[Tensor | Scalar] = 1.0,
         name: str = "",
+        fn: Optional[Callable] = None,
+        **kwargs: Any,
     ):
         self.name = name
 
-        if A is None and b is None:
-            raise ValueError("Please provide either A or b.")
-        super().__init__(mat=A, vec=b, array=c)
+        if A is None and b is None and fn is None:
+            raise ValueError("Please provide either A or b or a function to generate (A, b, c).")
+        super().__init__(mat=A, vec=b, array=c, fn=fn, **kwargs)
 
     @property
     def A(self) -> Batch[ComplexMatrix]:
@@ -423,11 +513,24 @@ class ArrayAnsatz(Ansatz):
     """
 
     def __init__(self, array: Batch[Tensor], batched: bool = True):
-        array = math.astensor(array)
-        if not batched:
-            array = array[None, ...]
-        self.array = array
-        self.num_vars = len(self.array.shape) - 1
+        self._array = array if batched else [array]
+        self._backend_array = None
+
+    @property
+    def array(self) -> Batch[Tensor]:
+        r"""
+        The array of this ansatz.
+        """
+        if self._backend_array is None:
+            self._backend_array = math.astensor(self._array)
+        return self._backend_array
+
+    @property
+    def num_vars(self) -> int:
+        r"""
+        The number of variables in this ansatz.
+        """
+        return len(self.array.shape) - 1
 
     def __neg__(self) -> ArrayAnsatz:
         r"""
@@ -464,7 +567,7 @@ class ArrayAnsatz(Ansatz):
         """
         try:
             new_array = [a + b for a in self.array for b in other.array]
-            return self.__class__(array=math.astensor(new_array))
+            return self.__class__(array=new_array)
         except Exception as e:
             raise TypeError(f"Cannot add {self.__class__} and {other.__class__}.") from e
 
@@ -490,7 +593,7 @@ class ArrayAnsatz(Ansatz):
         if isinstance(other, ArrayAnsatz):
             try:
                 new_array = [a / b for a in self.array for b in other.array]
-                return self.__class__(array=math.astensor(new_array))
+                return self.__class__(array=new_array)
             except Exception as e:
                 raise TypeError(f"Cannot divide {self.__class__} and {other.__class__}.") from e
         else:
@@ -512,7 +615,7 @@ class ArrayAnsatz(Ansatz):
         if isinstance(other, ArrayAnsatz):
             try:
                 new_array = [a * b for a in self.array for b in other.array]
-                return self.__class__(array=math.astensor(new_array))
+                return self.__class__(array=new_array)
             except Exception as e:
                 raise TypeError(f"Cannot multiply {self.__class__} and {other.__class__}.") from e
         else:
@@ -530,7 +633,7 @@ class ArrayAnsatz(Ansatz):
             Batch size is the product of two batches.
         """
         new_array = [math.outer(a, b) for a in self.array for b in other.array]
-        return self.__class__(array=math.astensor(new_array))
+        return self.__class__(array=new_array)
 
     @property
     def conj(self):
