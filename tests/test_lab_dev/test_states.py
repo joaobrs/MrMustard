@@ -39,6 +39,7 @@ from mrmustard.lab_dev.states import (
     TwoModeSqueezedVacuum,
     Thermal,
     Vacuum,
+    Sauron,
 )
 from mrmustard.lab_dev.transformations import Attenuator, Dgate, Sgate, S2gate
 from mrmustard.lab_dev.wires import Wires
@@ -961,3 +962,21 @@ class TestVisualization:
     def test_visualize_dm_error(self):
         with pytest.raises(ValueError):
             Coherent([0, 1]).visualize_dm(20)
+
+
+class TestSauron:
+    r"""
+    Tests the Sauron states.
+    """
+
+    def test_overlap_with_fock(self):
+        n1 = Number([0], n=1)
+        s1 = Sauron([0], n=1, r=0.1)
+        s1b = Sauron([0], n=1, r=0.5)
+        assert abs(s1.expectation(n1)) > abs(
+            s1b.expectation(n1)
+        )  # s1 is a better approx to n1 than s1b
+
+        n2 = Number([0], n=2)
+        s2 = Sauron([0], n=2, r=0.1)
+        assert np.isclose(s2.expectation(n2), 1.0)
