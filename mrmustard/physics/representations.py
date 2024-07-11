@@ -21,13 +21,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Iterable, Union
-import os
 from matplotlib import colors
 import matplotlib.pyplot as plt
 import numpy as np
 
-from IPython.display import display, HTML
-from mako.template import Template
+from IPython.display import display
 
 from mrmustard import math, settings
 from mrmustard.physics.gaussian_integrals import (
@@ -44,6 +42,7 @@ from mrmustard.utils.typing import (
     Scalar,
     Tensor,
 )
+from mrmustard import widgets
 
 __all__ = ["Representation", "Bargmann", "Fock"]
 
@@ -505,8 +504,10 @@ class Bargmann(Representation):
         return Bargmann(A, b, c)
 
     def _repr_html_(self):  # pragma: no cover
-        template = Template(filename=os.path.dirname(__file__) + "/assets/bargmann.txt")  # nosec
-        display(HTML(template.render(rep=self)))
+        w = widgets.bargmann(self)
+        if w is None:
+            return
+        display(w)
 
 
 class Fock(Representation):
@@ -777,8 +778,10 @@ class Fock(Representation):
         return Fock(array=ret, batched=True)
 
     def _repr_html_(self):  # pragma: no cover
-        template = Template(filename=os.path.dirname(__file__) + "/assets/fock.txt")  # nosec
-        display(HTML(template.render(rep=self)))
+        w = widgets.fock(self)
+        if w is None:
+            return
+        display(w)
 
     def sum_batch(self) -> Fock:
         r"""
