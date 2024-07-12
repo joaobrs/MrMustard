@@ -37,7 +37,13 @@ from mrmustard.utils.typing import (
     Vector,
 )
 
-__all__ = ["Ansatz", "ArrayAnsatz", "PolyExpBase", "PolyExpAnsatz"]
+__all__ = [
+    "Ansatz",
+    "ArrayAnsatz",
+    "PolyExpBase",
+    "PolyExpAnsatz",
+    "DiffOpPolyExpAnsatz",
+]
 
 
 class Ansatz(ABC):
@@ -175,6 +181,18 @@ class PolyExpBase(Ansatz):
             return 0
         return self.array.shape[-1] - 1
 
+    @property
+    def polynomial_degrees(self) -> tuple[int, tuple]:
+        r"""
+        This method finds the dimensionality of the polynomial, i.e. how many wires
+        have polynomials attached to them and what the degree of the polynomial is
+        on each of the wires.
+        """
+
+        dim_poly = len(self.array.shape) - 1
+        shape_poly = self.array.shape[1:]
+        return dim_poly, shape_poly
+
     def simplify(self) -> None:
         r"""
         Simplifies the representation by combining together terms that have the same
@@ -240,6 +258,76 @@ class PolyExpBase(Ansatz):
         self.mat = math.gather(self.mat, sorted_indices, axis=0)
         self.vec = math.gather(self.vec, sorted_indices, axis=0)
         self.array = math.gather(self.array, sorted_indices, axis=0)
+
+    def decompose_ansatz(self) -> DiffOpPolyExpAnsatz:
+        r"""
+        This method decomposes a DiffOpPolyExpAnsatz. Given an ansatz of dimensions:
+        A=(batch,m+n,m+n), b=(batch,m+n), c = (batch,k_1,k_2,...,k_n),
+        it can be rewritten as an ansatz of dimensions
+        A=(batch,2m,2m), b=(batch,2m), c = (batch,l_1,l_2,...,l_m), with l_i = sum_j k_j
+        This decomposition is typically favourable if n>m, and will only run if that is the case.
+        """
+        dim_beta, shape_beta = self.polynomial_degrees
+        dim_alpha = self.mat.shape[-1] - dim_beta
+        batch_size = self.batch_size
+        if dim_beta > dim_alpha:
+            A_bar = np.array(
+                [
+                    np.block(
+                        [
+                            [
+                                np.zeros((dim_alpha, dim_alpha)),
+                                self.mat[i, dim_alpha:, :dim_alpha].T,
+                            ],
+                            [
+                                self.mat[i, dim_alpha:, :dim_alpha],
+                                self.mat[i, dim_alpha:, dim_alpha:],
+                            ],
+                        ]
+                    )
+                    for i in range(batch_size)
+                ]
+            )
+
+            b_bar = np.array(
+                [
+                    np.concatenate((np.zeros(dim_alpha), self.vec[i, dim_alpha:]))
+                    for i in range(batch_size)
+                ]
+            )
+
+            poly_bar = math.hermite_renormalized_batch(
+                np.moveaxis(A_bar, 0, -1),
+                np.moveaxis(b_bar, 0, -1),
+                1,
+                (np.sum(shape_beta),) * dim_alpha + shape_beta + (batch_size,),
+            )
+            poly_bar = np.moveaxis(poly_bar, -1, dim_alpha)
+            c_decomp = np.sum(
+                poly_bar * self.array,
+                axis=tuple(np.arange(len(poly_bar.shape) - dim_beta, len(poly_bar.shape))),
+            )
+            c_decomp = np.moveaxis(c_decomp, -1, 0)
+            A_decomp = np.array(
+                [
+                    np.block(
+                        [
+                            [self.mat[i, :dim_alpha, :dim_alpha], np.eye(dim_alpha)],
+                            [np.eye(dim_alpha), np.zeros((dim_alpha, dim_alpha))],
+                        ]
+                    )
+                    for i in range(batch_size)
+                ]
+            )
+            b_decomp = np.array(
+                [
+                    np.concatenate((self.vec[i, :dim_alpha], np.zeros(dim_alpha)))
+                    for i in range(batch_size)
+                ]
+            )
+            return DiffOpPolyExpAnsatz(A_decomp, b_decomp, c_decomp)
+        else:
+            return DiffOpPolyExpAnsatz(self.mat, self.vec, self.array)
 
 
 class PolyExpAnsatz(PolyExpBase):
@@ -398,6 +486,329 @@ class PolyExpAnsatz(PolyExpBase):
         As = [math.block_diag(a1, a2) for a1 in self.A for a2 in other.A]
         bs = [math.concat([b1, b2], axis=-1) for b1 in self.b for b2 in other.b]
         cs = [math.outer(c1, c2) for c1 in self.c for c2 in other.c]
+        return self.__class__(As, bs, cs)
+
+
+class DiffOpPolyExpAnsatz(PolyExpBase):
+    r"""
+    The ansatz of the Fock-Bargmann representation.
+
+    Represents the ansatz function:
+
+        :math:`F(z) = \sum_i [\sum_k c^(i)_k \partial_y^k \textrm{exp}((z,y)^T A_i (z,y) / 2 + (z,y)^T b_i)|_{y=0}]`
+
+    with ``k`` being a multi-index. The matrices :math:`A_i` and vectors :math:`b_i` are
+    parameters of the exponential terms in the ansatz, and :math:`z` is a vector of variables.
+
+    .. code-block::
+
+        >>> from mrmustard.physics.ansatze import DiffOpPolyExpAnsatz
+
+        >>> A = np.array([[1.0, 0.0], [0.0, 1.0]])
+        >>> b = np.array([1.0, 1.0])
+        >>> c = np.array([1.0,2.0,3.0])
+
+        >>> F = PolyExpAnsatz(A, b, c)
+        >>> z = np.array([1.0, 2.0])
+
+        >>> # calculate the value of the function at ``z``
+        >>> val = F(z)
+
+    Args:
+        A: The list of square matrices :math:`A_i`
+        b: The list of vectors :math:`b_i`
+        c: The array of coefficients for the polynomial terms in the ansatz.
+
+    """
+
+    def __init__(
+        self,
+        A: Optional[Batch[Matrix]] = None,
+        b: Optional[Batch[Vector]] = None,
+        c: Batch[Tensor] = np.array([1.0]),
+        name: str = "",
+    ):
+        self.name = name
+
+        if A is None and b is None:
+            raise ValueError("Please provide either A or b.")
+        A = math.astensor(A)
+        b = math.astensor(b)
+        c = math.astensor(c)
+        super().__init__(mat=A, vec=b, array=c)
+
+    @property
+    def A(self) -> Batch[ComplexMatrix]:
+        r"""
+        The list of square matrices :math:`A_i`.
+        """
+        return self.mat
+
+    @property
+    def b(self) -> Batch[ComplexVector]:
+        r"""
+        The list of vectors :math:`b_i`.
+        """
+        return self.vec
+
+    @property
+    def c(self) -> Batch[ComplexTensor]:
+        r"""
+        The array of coefficients for the polynomial terms in the ansatz.
+        """
+        return self.array
+
+    def __call__(self, z: Batch[Vector]) -> Scalar:
+        r"""
+        Value of this ansatz at ``z``.
+
+        Args:
+            z: point in C^n where the function is evaluated
+
+        Returns:
+            The value of the function.
+        """
+        dim_beta, shape_beta = self.polynomial_degrees
+        dim_alpha = self.A.shape[-1] - dim_beta
+        zz = np.einsum("...a,...b->...ab", z, z)[..., None, :, :]
+        z = z[..., None, :]
+
+        A_part = np.sum(self.A[..., :dim_alpha, :dim_alpha] * zz, axis=(-1, -2))
+        b_part = np.sum(self.b[..., :dim_alpha] * z[..., None, :], axis=-1)
+
+        exp_sum = np.exp(1 / 2 * A_part + b_part)
+        if dim_beta == 0:
+            val = np.sum(exp_sum * self.c, axis=-1)
+        else:
+            b_poly = math.astensor(
+                [
+                    np.sum(self.A[..., dim_alpha:, :dim_alpha] * z[i, None, :], axis=-1)
+                    + self.b[..., dim_alpha:]
+                    for i in range(z.shape[0])
+                ]
+            )
+            b_poly = np.moveaxis(b_poly, 0, -1)
+            A_poly = self.A[..., dim_alpha:, dim_alpha:]
+            poly = math.astensor(
+                [
+                    math.hermite_renormalized_batch(
+                        A_poly[i], b_poly[i], 1, shape_beta + (b_poly.shape[-1],)
+                    )
+                    for i in range(A_poly.shape[0])
+                ]
+            )
+            poly = np.moveaxis(poly, -1, 0)
+            val = np.sum(
+                exp_sum * np.sum(poly * self.c, axis=tuple(np.arange(2, 2 + dim_beta))), axis=-1
+            )
+        return val
+
+    def __mul__(self, other: Union[Scalar, DiffOpPolyExpAnsatz]) -> DiffOpPolyExpAnsatz:
+        r"""Multiplies this ansatz by a scalar or another ansatz or a plain scalar.
+
+        Args:
+            other: A scalar or another ansatz.
+
+        Raises:
+            TypeError: If other is neither a scalar nor an ansatz.
+
+        Returns:
+            PolyExpAnsatz: The product of this ansatz and other.
+        """
+
+        def mulA(A1, A2, dim_alpha, dim_beta1, dim_beta2):
+            A3 = np.block(
+                [
+                    [
+                        A1[:dim_alpha, :dim_alpha] + A2[:dim_alpha, :dim_alpha],
+                        A1[:dim_alpha, dim_alpha:],
+                        A2[:dim_alpha, dim_alpha:],
+                    ],
+                    [
+                        A1[dim_alpha:, :dim_alpha],
+                        A1[dim_alpha:, dim_alpha:],
+                        np.zeros((dim_beta1, dim_beta2)),
+                    ],
+                    [
+                        A2[dim_alpha:, :dim_alpha],
+                        np.zeros((dim_beta2, dim_beta1)),
+                        A2[dim_alpha:, dim_alpha:],
+                    ],
+                ]
+            )
+            return A3
+
+        def mulb(b1, b2, dim_alpha):
+            b3 = np.concatenate((b1[:dim_alpha] + b2[:dim_alpha], b1[dim_alpha:], b2[dim_alpha:]))
+            return b3
+
+        def mulc(c1, c2):
+            c3 = np.outer(c1, c2).reshape(c1.shape + c2.shape)
+            return c3
+
+        if isinstance(other, DiffOpPolyExpAnsatz):
+
+            dim_beta1, _ = self.polynomial_degrees
+            dim_beta2, _ = other.polynomial_degrees
+
+            dim_alpha1 = self.A.shape[-1] - dim_beta1
+            dim_alpha2 = other.A.shape[-1] - dim_beta2
+            assert dim_alpha1 == dim_alpha2
+            dim_alpha = dim_alpha1
+
+            new_a = [
+                mulA(A1, A2, dim_alpha, dim_beta1, dim_beta2)
+                for A1, A2 in itertools.product(self.A, other.A)
+            ]
+            new_b = [mulb(b1, b2, dim_alpha) for b1, b2 in itertools.product(self.b, other.b)]
+            new_c = [mulc(c1, c2) for c1, c2 in itertools.product(self.c, other.c)]
+
+            return self.__class__(A=new_a, b=new_b, c=new_c)
+        else:
+            try:
+                return self.__class__(self.A, self.b, self.c * other)
+            except Exception as e:
+                raise TypeError(f"Cannot divide {self.__class__} and {other.__class__}.") from e
+
+    def __truediv__(self, other: Union[Scalar, DiffOpPolyExpAnsatz]) -> DiffOpPolyExpAnsatz:
+        r"""Multiplies this ansatz by a scalar or another ansatz or a plain scalar.
+
+        Args:
+            other: A scalar or another ansatz.
+
+        Raises:
+            TypeError: If other is neither a scalar nor an ansatz.
+
+        Returns:
+            PolyExpAnsatz: The product of this ansatz and other.
+        """
+
+        def divA(A1, A2, dim_alpha, dim_beta1, dim_beta2):
+            A3 = np.block(
+                [
+                    [
+                        A1[:dim_alpha, :dim_alpha] + A2[:dim_alpha, :dim_alpha],
+                        A1[:dim_alpha, dim_alpha:],
+                        A2[:dim_alpha, dim_alpha:],
+                    ],
+                    [
+                        A1[dim_alpha:, :dim_alpha],
+                        A1[dim_alpha:, dim_alpha:],
+                        np.zeros((dim_beta1, dim_beta2)),
+                    ],
+                    [
+                        A2[dim_alpha:, :dim_alpha],
+                        np.zeros((dim_beta2, dim_beta1)),
+                        A2[dim_alpha:, dim_alpha:],
+                    ],
+                ]
+            )
+            return A3
+
+        def divb(b1, b2, dim_alpha):
+            b3 = np.concatenate((b1[:dim_alpha] + b2[:dim_alpha], b1[dim_alpha:], b2[dim_alpha:]))
+            return b3
+
+        def divc(c1, c2):
+            c3 = np.outer(c1, c2).reshape(c1.shape + c2.shape)
+            return c3
+
+        if isinstance(other, DiffOpPolyExpAnsatz):
+
+            dim_beta1, _ = self.polynomial_degrees
+            dim_beta2, _ = other.polynomial_degrees
+            if dim_beta1 == 0 and dim_beta2 == 0:
+                dim_alpha1 = self.A.shape[-1] - dim_beta1
+                dim_alpha2 = other.A.shape[-1] - dim_beta2
+                assert dim_alpha1 == dim_alpha2
+                dim_alpha = dim_alpha1
+
+                new_a = [
+                    divA(A1, -A2, dim_alpha, dim_beta1, dim_beta2)
+                    for A1, A2 in itertools.product(self.A, other.A)
+                ]
+                new_b = [divb(b1, -b2, dim_alpha) for b1, b2 in itertools.product(self.b, other.b)]
+                new_c = [divc(c1, 1 / c2) for c1, c2 in itertools.product(self.c, other.c)]
+
+                return self.__class__(A=new_a, b=new_b, c=new_c)
+            else:
+                raise NotImplementedError("Only implemented if both c are scalars")
+        else:
+            try:
+                return self.__class__(self.A, self.b, self.c / other)
+            except Exception as e:
+                raise TypeError(f"Cannot multiply {self.__class__} and {other.__class__}.") from e
+
+    def __and__(self, other: DiffOpPolyExpAnsatz) -> DiffOpPolyExpAnsatz:
+        r"""Tensor product of this ansatz with another ansatz.
+        Equivalent to :math:`F(a) * G(b)` (with different arguments, that is).
+        As it distributes over addition on both self and other,
+        the batch size of the result is the product of the batch
+        size of this anzatz and the other one.
+
+        Args:
+            other: Another ansatz.
+
+        Returns:
+            The tensor product of this ansatz and other.
+        """
+
+        def andA(A1, A2, dim_alpha1, dim_alpha2, dim_beta1, dim_beta2):
+            A3 = np.block(
+                [
+                    [
+                        A1[:dim_alpha1, :dim_alpha1],
+                        np.zeros((dim_alpha1, dim_alpha2)),
+                        A1[:dim_alpha1, dim_alpha1:],
+                        np.zeros((dim_alpha1, dim_beta2)),
+                    ],
+                    [
+                        np.zeros((dim_alpha2, dim_alpha1)),
+                        A2[:dim_alpha2:, :dim_alpha2],
+                        np.zeros((dim_alpha2, dim_beta1)),
+                        A2[:dim_alpha2, dim_alpha2:],
+                    ],
+                    [
+                        A1[dim_alpha1:, :dim_alpha1],
+                        np.zeros((dim_beta1, dim_alpha2)),
+                        A1[dim_alpha1:, dim_alpha1:],
+                        np.zeros((dim_beta1, dim_beta2)),
+                    ],
+                    [
+                        np.zeros((dim_beta2, dim_alpha1)),
+                        A2[dim_alpha2:, :dim_alpha2],
+                        np.zeros((dim_beta2, dim_beta1)),
+                        A2[dim_alpha2:, dim_alpha2:],
+                    ],
+                ]
+            )
+            return A3
+
+        def andb(b1, b2, dim_alpha1, dim_alpha2):
+            b3 = np.concatenate(
+                (b1[:dim_alpha1], b2[:dim_alpha2], b1[dim_alpha1:], b2[dim_alpha2:])
+            )
+            return b3
+
+        def andc(c1, c2):
+            if c1.shape == (1,) and c2.shape == (1,):
+                c3 = c1 * c2
+            else:
+                c3 = np.outer(c1, c2).reshape(c1.shape + c2.shape)
+            return c3
+
+        dim_beta1, _ = self.polynomial_degrees
+        dim_beta2, _ = other.polynomial_degrees
+
+        dim_alpha1 = self.A.shape[-1] - dim_beta1
+        dim_alpha2 = other.A.shape[-1] - dim_beta2
+
+        As = [
+            andA(A1, A2, dim_alpha1, dim_alpha2, dim_beta1, dim_beta2)
+            for A1, A2 in itertools.product(self.A, other.A)
+        ]
+        bs = [andb(b1, b2, dim_alpha1, dim_alpha2) for b1, b2 in itertools.product(self.b, other.b)]
+        cs = [andc(c1, c2) for c1, c2 in itertools.product(self.c, other.c)]
         return self.__class__(As, bs, cs)
 
 
